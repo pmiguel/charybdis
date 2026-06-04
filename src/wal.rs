@@ -3,7 +3,7 @@ use std::io::Write;
 
 const WAL_FILE_PATH: &str = "./odb.wal";
 
-struct Wal {
+pub struct Wal {
     curr_file: Option<std::fs::File>,
 }
 

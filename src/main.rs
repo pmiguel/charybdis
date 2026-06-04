@@ -1,5 +1,5 @@
 use onyxdb::memtable;
-
+use onyxdb::wal;
 fn main() {
 
     let mut memtable = memtable::MemTable::new();
@@ -14,6 +14,18 @@ fn main() {
         }
         None => {
             println!("No value");
+        }
+    }
+
+    let mut wal = wal::Wal::new();
+    wal.init().unwrap();
+
+    match wal.append(b"key", b"HELLOWORLD") {
+        Ok(()) => {
+            println!("WAL append successful");
+        }
+        Err(e) => {
+            println!("{}", e)
         }
     }
 }
