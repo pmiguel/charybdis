@@ -1,5 +1,7 @@
 use onyxdb::memtable;
 use onyxdb::wal;
+use onyxdb::wal::WalRecord;
+
 fn main() {
 
     let mut memtable = memtable::MemTable::new();
@@ -20,7 +22,9 @@ fn main() {
     let mut wal = wal::Wal::new();
     wal.init().unwrap();
 
-    match wal.append(b"key", b"HELLOWORLD") {
+    let temp_rec = wal::WalRecord::new(b"mykey", b"bigbigvalue", 1);
+
+    match wal.append(&temp_rec) {
         Ok(()) => {
             println!("WAL append successful");
         }
