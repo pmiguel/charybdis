@@ -2,7 +2,7 @@ use crate::skiplist::SkipList;
 
 const MT_TOMBSTONE_MARKER: [u8; 1] = [0];
 
-struct MemTable {
+pub struct MemTable {
     data: SkipList,
 }
 

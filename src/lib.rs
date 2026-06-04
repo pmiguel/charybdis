@@ -1,3 +1,3 @@
 mod skiplist;
-mod memtable;
+pub mod memtable;
 mod wal;
