@@ -1,4 +1,5 @@
-const MAX_LEVEL: usize = 16;
+const SL_MAX_LEVEL: usize = 16;
+const SL_FLIP_PROB: f64 = 0.5;
 
 pub struct Node {
     key: Vec<u8>,
@@ -9,8 +10,8 @@ pub struct Node {
 
 pub struct SkipList {
     arena: Vec<Node>,
-    head: usize,
-    max_level: usize,
+    head_idx: usize,
+    top_level: usize,
 }
 
 impl SkipList {
@@ -18,22 +19,22 @@ impl SkipList {
         let head = Node{
             key: vec![],
             value: vec![],
-            next: vec![None; MAX_LEVEL]
+            next: vec![None; SL_MAX_LEVEL]
         };
 
         SkipList {
             arena: vec![head],
-            head: 0,
-            max_level: 0,
+            head_idx: 0,
+            top_level: 0,
         }
     }
 
     pub fn get(&self, search_key: &[u8]) -> Option<&[u8]> {
-        let mut current_idx = self.head;
-        for level in (0..=self.max_level).rev() {
+        let mut current_idx = self.head_idx;
+        for current_level in (0..=self.top_level).rev() {
             loop {
-                let next_pointer = self.arena[current_idx].next[level];
-                match next_pointer {
+                let next = self.arena[current_idx].next[current_level];
+                match next {
                     None => { break; }
                     Some(next_idx) => {
                         // equivalent to &self.arena[next_idx].key[..]
@@ -54,26 +55,25 @@ impl SkipList {
 
     fn flip() -> usize {
         let mut level: usize = 0;
-        while rand::random::<bool>() && level < MAX_LEVEL - 1 {
+        while rand::random_bool(SL_FLIP_PROB) && level < SL_MAX_LEVEL - 1 {
             level += 1;
         }
         level
     }
 
     pub fn put(&mut self, search_key: &[u8], value: &[u8]) -> () {
-        let mut update = vec![self.head; MAX_LEVEL];
-        let mut current_idx = self.head;
+        let mut update = vec![self.head_idx; SL_MAX_LEVEL];
+        let mut current_idx = self.head_idx;
 
-        for level in (0..=self.max_level).rev() {
+        for current_level in (0..=self.top_level).rev() {
             loop {
-                let next_pointer = self.arena[current_idx].next[level];
-                match next_pointer {
+                let next = self.arena[current_idx].next[current_level];
+                match next {
                     None => {
-                        update[level] = current_idx;
+                        update[current_level] = current_idx;
                         break;
                     }
                     Some(next_idx) => {
-                        // equivalent to &self.arena[next_idx].key[..]
                         let next_key = self.arena[next_idx].key.as_slice();
                         if next_key == search_key {
                             self.arena[next_idx].value = value.into();
@@ -81,7 +81,7 @@ impl SkipList {
                         } else if next_key < search_key {
                             current_idx = next_idx;
                         } else {
-                            update[level] = current_idx;
+                            update[current_level] = current_idx;
                             break;
                         }
                     }
@@ -89,25 +89,20 @@ impl SkipList {
             }
         }
         let target_level = Self::flip();
-        if target_level > self.max_level {
-            self.max_level = target_level;
+        if target_level > self.top_level {
+            self.top_level = target_level;
         }
 
-        let new_node = Node {
+        self.arena.push(Node {
             key: search_key.into(),
             value: value.into(),
             next: vec![None; target_level + 1]
-        };
-        self.arena.push(new_node);
+        });
+
         let new_idx = self.arena.len() - 1;
         for level in 0..=target_level {
-            // 1. Get the breadcrumb node index for this level
             let breadcrumb_idx = update[level];
-
-            // 2. The new node points to whatever the breadcrumb WAS pointing to
             self.arena[new_idx].next[level] = self.arena[breadcrumb_idx].next[level];
-
-            // 3. The breadcrumb now points to the new node
             self.arena[breadcrumb_idx].next[level] = Some(new_idx);
         }
     }
