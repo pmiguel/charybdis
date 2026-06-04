@@ -31,7 +31,7 @@ impl MemTable {
 
     pub fn del(&mut self, search_key: &[u8]) {
         // tombstone
-        self.data.put(search_key, MT_TOMBSTONE_MARKER.as_slice());
+        self.data.put(search_key, &MT_TOMBSTONE_MARKER[..]);
     }
 }
 

@@ -22,7 +22,7 @@ fn main() {
     let mut wal = wal::Wal::new();
     wal.init().unwrap();
 
-    let temp_rec = wal::WalRecord::new(b"mykey", b"bigbigvalue", 1);
+    let temp_rec = wal::WalRecord::new(b"mykey", b"bigbigvalue", 1, 0);
 
     match wal.append(&temp_rec) {
         Ok(()) => {
