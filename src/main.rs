@@ -35,5 +35,5 @@ fn main() {
     //
     // }
 
-    wal.inspect().unwrap();
+    wal.inspect_with_bytes().unwrap();
 }
