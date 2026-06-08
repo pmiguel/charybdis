@@ -11,13 +11,13 @@ pub struct Wal {
 }
 
 pub struct WalRecord {
-    record_type: u8,
+    pub record_type: u8,
     batch_id: u64,
     seq_no: u64,
     key_len: u32,
     val_len: u32,
-    key: Vec<u8>,
-    val: Vec<u8>
+    pub key: Vec<u8>,
+    pub val: Vec<u8>
 }
 
 pub enum WalRecordType {
@@ -180,6 +180,60 @@ impl Wal {
         }
 
         Ok(())
+    }
+
+    pub fn recover(&mut self) -> Result<Vec<WalRecord>, io::Error> {
+        let file = self.curr_file.as_mut().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotConnected, "WAL file not initialized")
+        })?;
+
+        let mut record_buf = vec![];
+
+
+        file.rewind()?;
+
+        let mut buf = vec![];
+        let bytes_read = file.read_to_end(&mut buf)?;
+        let mut ptr = &buf[..];
+
+        // As long as there are bytes left in our pointer...
+        while ptr.has_remaining() {
+            // Save a copy of the pointer BEFORE we read the CRC
+            // so we can calculate the payload size later for the CRC check.
+            let record_start_len = ptr.len();
+
+            // Reading automatically advances `ptr`! No offsets needed!
+            let record_crc32 = ptr.get_u32_le();
+            let record_type  = ptr.get_u8();
+            let batch_id     = ptr.get_u64_le();
+            let seq_no       = ptr.get_u64_le();
+            let kl           = ptr.get_u32_le();
+            let vl           = ptr.get_u32_le();
+
+            // Extract Key
+            let key = &ptr[..kl as usize];
+            ptr.advance(kl as usize); // Move the pointer past the key
+
+            // Extract Value
+            let val = &ptr[..vl as usize];
+            ptr.advance(vl as usize); // Move the pointer past the value
+
+            // --- CRC Check ---
+            // How many bytes did we just consume for the payload?
+            let payload_len = (record_start_len - ptr.len()) - 4; // Subtract the 4 bytes of CRC
+
+            // Grab the exact payload bytes from our original buffer
+            let base_offset = buf.len() - record_start_len;
+            let payload_bytes = &buf[base_offset + 4 .. base_offset + 4 + payload_len];
+
+            let calc_crc32 = crc32fast::hash(payload_bytes);
+
+            if calc_crc32 == record_crc32 {
+                record_buf.push(WalRecord::new(key, val, record_type, seq_no));
+            }
+        }
+
+        Ok(record_buf)
     }
 
     pub fn inspect_with_bytes(&mut self) -> Result<(), io::Error> {
