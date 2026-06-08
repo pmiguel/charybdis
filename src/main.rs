@@ -26,8 +26,8 @@ fn main() {
     wal.append(&r5).unwrap();
     wal.append(&r6).unwrap();
 
-    // Inspect records
-    wal.inspect_with_bytes().unwrap();
+    // Verify records
+    wal.verify().unwrap();
 
     // init DB, will load wal
     let mut db = Db::new();

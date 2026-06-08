@@ -14,15 +14,14 @@ pub struct WalRecord {
     pub record_type: u8,
     batch_id: u64,
     seq_no: u64,
-    key_len: u32,
-    val_len: u32,
     pub key: Vec<u8>,
     pub val: Vec<u8>
 }
 
-pub enum WalRecordType {
-    Put = 1,
-    Del = 2
+impl fmt::Display for WalRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(walrecord: k:{}, v:{})", String::from_utf8_lossy(&self.key), String::from_utf8_lossy(&self.val))
+    }
 }
 
 impl WalRecord {
@@ -31,8 +30,6 @@ impl WalRecord {
             record_type,
             batch_id: 0x0,
             seq_no,
-            key_len: key.len() as u32,
-            val_len: val.len() as u32,
             key: key.into(),
             val: val.into()
         }
@@ -108,80 +105,6 @@ impl Wal {
         Ok(())
     }
 
-    pub fn inspect(&mut self) -> Result<(), io::Error> {
-        println!("== Write-Ahead Log Inspection ==");
-        let file = self.curr_file.as_mut().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotConnected, "WAL file not initialized")
-        })?;
-
-        file.rewind()?;
-
-        let mut buf = vec![];
-        let result = file.read_to_end(&mut buf);
-        println!("-> wal file read: {} bytes", result.unwrap());
-
-        let mut base_offset = 0;
-        while base_offset < buf.len() {
-            //  size_of::<u32>()  // CRC32
-            //  size_of::<u8>()   // record_type
-            //  size_of::<u64>()  // batch_id
-            //  size_of::<u64>()  // seq_no
-            //  size_of::<u32>()  // key_len (le)
-            //  size_of::<u32>()  // val_len (le)
-
-            // Header Offsets
-            let crc32_offset       = base_offset;
-            let record_type_offset = crc32_offset + size_of::<u32>();
-            let batch_id_offset    = record_type_offset + size_of::<u8>();
-            let seq_no_offset      = batch_id_offset + size_of::<u64>();
-            let key_len_offset     = seq_no_offset + size_of::<u64>();
-            let val_len_offset     = key_len_offset + size_of::<u32>();
-
-            // Header Slices
-            let crc32_slice:  [u8; 4]   = buf[crc32_offset..crc32_offset + size_of::<u32>()].try_into().unwrap();
-            let batch_id_slice: [u8; 8] = buf[batch_id_offset..batch_id_offset + size_of::<u64>()].try_into().unwrap();
-            let seq_no_slice: [u8; 8]   = buf[seq_no_offset..seq_no_offset + size_of::<u64>()].try_into().unwrap();
-            let kl_slice: [u8; 4]       = buf[key_len_offset..key_len_offset + size_of::<u32>()].try_into().unwrap();
-            let vl_slice: [u8; 4]       = buf[val_len_offset..val_len_offset + size_of::<u32>()].try_into().unwrap();
-
-            // Header Values
-            let record_crc32 = u32::from_le_bytes(crc32_slice);
-            let record_type   = buf[record_type_offset];
-            let batch_id     = u64::from_le_bytes(batch_id_slice);
-            let seq_no       = u64::from_le_bytes(seq_no_slice);
-            let kl           = u32::from_le_bytes(kl_slice);
-            let vl           = u32::from_le_bytes(vl_slice);
-
-            // Body Offsets
-            let key_offset = val_len_offset + size_of::<u32>();
-            let val_offset = key_offset + kl as usize;
-
-            // Body Values
-            let key: Vec<u8> = buf[key_offset..key_offset+kl as usize].into();
-            let val: Vec<u8> = buf[val_offset..val_offset+vl as usize].into();
-
-            let record_buf = &buf[base_offset + 4..val_offset+vl as usize];
-            let calc_crc32 = crc32fast::hash(record_buf);
-
-            println!("h[crc:{},crc_check:{},t:{},b:{},seq:{},kl:{},vl:{}]\tb[k:{},v:{}]",
-                     record_crc32,
-                     calc_crc32 == record_crc32,
-                     record_type,
-                     batch_id,
-                     seq_no,
-                     kl,
-                     vl,
-                     String::from_utf8(key).unwrap(),
-                     String::from_utf8(val).unwrap(),
-
-            );
-
-            base_offset = val_offset + vl as usize;
-        }
-
-        Ok(())
-    }
-
     pub fn recover(&mut self) -> Result<Vec<WalRecord>, io::Error> {
         let file = self.curr_file.as_mut().ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotConnected, "WAL file not initialized")
@@ -236,30 +159,29 @@ impl Wal {
         Ok(record_buf)
     }
 
-    pub fn inspect_with_bytes(&mut self) -> Result<(), io::Error> {
+    pub fn inspect(&mut self) -> Result<(), io::Error> {
+        let records = self.recover()?;
+        let _: () = records.iter().map(|r| println!("{}", r)).collect();
+        Ok(())
+    }
+
+    pub fn verify(&mut self) -> Result<(), io::Error> {
         println!("== Write-Ahead Log Inspection ==");
         let file = self.curr_file.as_mut().ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotConnected, "WAL file not initialized")
         })?;
 
-        // GOTCHA FIX: If you just appended, the file cursor is at the END of the file.
-        // You must rewind it to the beginning before reading!
         file.rewind()?;
 
         let mut buf = vec![];
         let bytes_read = file.read_to_end(&mut buf)?;
         println!("-> wal file read: {} bytes", bytes_read);
 
-        // We create a "mutable slice pointer". As we read, this slice gets smaller!
         let mut ptr = &buf[..];
 
-        // As long as there are bytes left in our pointer...
         while ptr.has_remaining() {
-            // Save a copy of the pointer BEFORE we read the CRC
-            // so we can calculate the payload size later for the CRC check.
             let record_start_len = ptr.len();
 
-            // Reading automatically advances `ptr`! No offsets needed!
             let record_crc32 = ptr.get_u32_le();
             let record_type  = ptr.get_u8();
             let batch_id     = ptr.get_u64_le();
@@ -267,27 +189,22 @@ impl Wal {
             let kl           = ptr.get_u32_le();
             let vl           = ptr.get_u32_le();
 
-            // Extract Key
             let key = &ptr[..kl as usize];
             ptr.advance(kl as usize); // Move the pointer past the key
 
-            // Extract Value
             let val = &ptr[..vl as usize];
             ptr.advance(vl as usize); // Move the pointer past the value
 
-            // --- CRC Check ---
-            // How many bytes did we just consume for the payload?
             let payload_len = (record_start_len - ptr.len()) - 4; // Subtract the 4 bytes of CRC
 
-            // Grab the exact payload bytes from our original buffer
             let base_offset = buf.len() - record_start_len;
             let payload_bytes = &buf[base_offset + 4 .. base_offset + 4 + payload_len];
 
-            let calc_crc32 = crc32fast::hash(payload_bytes);
+            let calculated_crc32 = crc32fast::hash(payload_bytes);
 
             println!("h[crc:{},crc_check:{},t:{},b:{},seq:{},kl:{},vl:{}]\tb[k:{},v:{}]",
                      record_crc32,
-                     calc_crc32 == record_crc32,
+                     calculated_crc32 == record_crc32,
                      record_type,
                      batch_id,
                      seq_no,

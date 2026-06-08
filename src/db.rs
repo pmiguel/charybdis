@@ -22,10 +22,16 @@ impl Db {
         self.wal.init()?;
         let records = self.wal.recover()?;
         for record in records {
+            let op_result;
             match record.record_type {
-                1 => self.mem_table.put(&record.key, &record.val),
-                2 => self.mem_table.del(&record.key),
+                1 => op_result = self.mem_table.put(&record.key, &record.val),
+                2 => op_result = self.mem_table.del(&record.key),
                 _ => continue,
+            }
+            match op_result {
+                Ok(()) => continue,
+                // TODO handle memtable errors
+                Err(e) => panic!("{}", e)
             }
         }
         Ok(())
@@ -41,9 +47,11 @@ impl Db {
         let record = WalRecord::new(k_slice, v_slice, 1, 0);
 
         self.wal.append(&record)?;
-        self.mem_table.put(k_slice, v_slice);
-
-        Ok(())
+        match self.mem_table.put(k_slice, v_slice) {
+            Ok(()) => Ok(()),
+            // TODO handle memtable errors
+            Err(_) => Err(io::Error::new(io::ErrorKind::Other, "An error has ocurred"))
+        }
     }
 
     pub fn delete<K>(&mut self, key: K) -> Result<(), io::Error>
@@ -54,9 +62,11 @@ impl Db {
         let record = WalRecord::new(k_slice, &[], 2, 0);
 
         self.wal.append(&record)?;
-        self.mem_table.del(k_slice);
-
-        Ok(())
+        match self.mem_table.del(k_slice) {
+            Ok(()) => Ok(()),
+            // TODO handle memtable errors
+            Err(_) => Err(io::Error::new(io::ErrorKind::Other, "An error has ocurred"))
+        }
     }
 
     pub fn get<'a, K, V>(&'a self, key: &K) -> Option<V>
