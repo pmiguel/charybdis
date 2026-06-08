@@ -7,12 +7,12 @@ const WAL_FILE_PATH: &str = "./odb.wal";
 
 pub struct Wal {
     curr_file: Option<fs::File>,
-    curr_seq_no: u64
+    // curr_seq_no: u64 TODO sequence number
 }
 
 pub struct WalRecord {
     pub record_type: u8,
-    batch_id: u64,
+    // batch_id: u64, TODO
     seq_no: u64,
     pub key: Vec<u8>,
     pub val: Vec<u8>
@@ -28,7 +28,7 @@ impl WalRecord {
     pub fn new(key: &[u8], val: &[u8], record_type: u8, seq_no: u64) -> WalRecord {
         WalRecord {
             record_type,
-            batch_id: 0x0,
+            // batch_id: 0x0, TODO
             seq_no,
             key: key.into(),
             val: val.into()
@@ -71,7 +71,7 @@ impl Wal {
     pub fn new() -> Wal {
         Wal {
             curr_file: None,
-            curr_seq_no: 0
+            // curr_seq_no: 0 TODO sequence number
         }
     }
 
@@ -116,7 +116,7 @@ impl Wal {
         file.rewind()?;
 
         let mut buf = vec![];
-        let bytes_read = file.read_to_end(&mut buf)?;
+        let _ = file.read_to_end(&mut buf)?;
         let mut ptr = &buf[..];
 
         // As long as there are bytes left in our pointer...
@@ -127,8 +127,8 @@ impl Wal {
 
             // Reading automatically advances `ptr`! No offsets needed!
             let record_crc32 = ptr.get_u32_le();
-            let record_type  = ptr.get_u8();
-            let batch_id     = ptr.get_u64_le();
+            let record_type   = ptr.get_u8();
+            let _                 = ptr.get_u64_le(); // TODO batch_id
             let seq_no       = ptr.get_u64_le();
             let kl           = ptr.get_u32_le();
             let vl           = ptr.get_u32_le();
