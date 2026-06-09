@@ -1,6 +1,7 @@
 use crate::skiplist::SkipList;
 
-const MT_TOMBSTONE_MARKER: [u8; 1] = [0];
+const TOMBSTONE_MARKER: [u8; 1] = [0];
+const MAX_MEMTABLE_SIZE_BYTES: u32 = 4 * 1024 * 1024; // 4MB
 
 pub struct MemTable {
     data: SkipList,
@@ -18,7 +19,7 @@ impl MemTable {
     pub fn get(&self, search_key: &[u8]) -> Option<&[u8]> {
         match self.data.get(search_key) {
             Some(data) => {
-                if data == MT_TOMBSTONE_MARKER {
+                if data == TOMBSTONE_MARKER {
                     return None;
                 }
                 Some(data)
@@ -39,7 +40,7 @@ impl MemTable {
         if self.is_frozen {
             return Err("Can't update frozen MemTable");
         }
-        self.data.put(search_key, &MT_TOMBSTONE_MARKER.as_slice());
+        self.data.put(search_key, &TOMBSTONE_MARKER.as_slice());
         Ok(())
     }
 
