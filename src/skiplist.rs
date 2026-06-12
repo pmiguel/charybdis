@@ -7,11 +7,23 @@ pub struct Node {
     next: Vec<Option<usize>>
 }
 
+impl Node {
+    pub fn size(&self) -> usize {
+        let key_size = self.key.len();
+        let val_size = self.value.len();
+        let next_size = self.next.len() * size_of::<Option<usize>>();
+
+        key_size + val_size + next_size
+    }
+}
+
 
 pub struct SkipList {
     arena: Vec<Node>,
     head_idx: usize,
     top_level: usize,
+    size_bytes: usize,
+    length: usize
 }
 
 impl SkipList {
@@ -22,10 +34,14 @@ impl SkipList {
             next: vec![None; SL_MAX_LEVEL]
         };
 
+        let head_size = head.size();
+
         SkipList {
             arena: vec![head],
             head_idx: 0,
             top_level: 0,
+            length: 0,
+            size_bytes: head_size
         }
     }
 
@@ -76,6 +92,12 @@ impl SkipList {
                     Some(next_idx) => {
                         let next_key = self.arena[next_idx].key.as_slice();
                         if next_key == search_key {
+
+                            // Size accounting on update
+                            let old_size = self.arena[next_idx].value.len();
+                            let new_size = value.len();
+                            self.update_value_size_bytes(old_size, new_size);
+
                             self.arena[next_idx].value = value.into();
                             return
                         } else if next_key < search_key {
@@ -93,11 +115,16 @@ impl SkipList {
             self.top_level = target_level;
         }
 
-        self.arena.push(Node {
+        let new_node = Node {
             key: search_key.into(),
             value: value.into(),
             next: vec![None; target_level + 1]
-        });
+        };
+
+        // Size accounting on add
+        self.update_value_size_bytes(0, new_node.size());
+        self.length += 1;
+        self.arena.push(new_node);
 
         let new_idx = self.arena.len() - 1;
         for level in 0..=target_level {
@@ -105,6 +132,10 @@ impl SkipList {
             self.arena[new_idx].next[level] = self.arena[breadcrumb_idx].next[level];
             self.arena[breadcrumb_idx].next[level] = Some(new_idx);
         }
+    }
+
+    fn update_value_size_bytes(&mut self, old_size: usize, new_size: usize) -> () {
+        self.size_bytes = self.size_bytes - old_size + new_size;
     }
 }
 
@@ -121,5 +152,45 @@ mod tests {
         assert_eq!(list.get(b"apple"), Some(&b"red"[..]));
         assert_eq!(list.get(b"banana"), Some(&b"yellow"[..]));
         assert_eq!(list.get(b"grape"), None);
+    }
+
+    #[test]
+    fn test_node_size_no_next() {
+
+        let node = Node {
+            key: b"apple".into(),
+            value: b"red".into(),
+            next: vec![]
+        };
+
+        assert_eq!(node.size(), 8);
+    }
+
+    #[test]
+    fn test_node_size_3_next() {
+        let next_count: usize = 3;
+
+        let node = Node {
+            key: b"apple".into(),
+            value: b"red".into(),
+            next: vec![Some(1); next_count]
+        };
+
+        assert_eq!(node.size(), 8 + next_count * size_of::<Option<usize>>());
+    }
+
+    #[test]
+    fn test_skiplist_size_bounds() {
+        let mut list = SkipList::new();
+        let initial_size = list.size_bytes;
+
+        list.put(b"apple", b"red");
+
+        let key_val_size = 5 + 3;
+        let min_node_size = key_val_size + (1 * size_of::<Option<usize>>());
+        let max_node_size = key_val_size + (SL_MAX_LEVEL * size_of::<Option<usize>>());
+
+        assert!(list.size_bytes >= initial_size + min_node_size);
+        assert!(list.size_bytes <= initial_size + max_node_size);
     }
 }
