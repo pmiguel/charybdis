@@ -2,14 +2,15 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 
-const MIN_BLOCK_SIZE: usize = 4 * 1024; // 4 KiB
+const MAX_BLOCK_SIZE: usize = 4 * 1024; // 4 KiB
 
 struct SSTableBuilder {
     curr_file: Option<File>,
     curr_file_index: u32,
     curr_block: Block,
     curr_offset: u64,
-    index_entries: Vec<IndexEntry>
+    index_entries: Vec<IndexEntry>,
+    last_key: Vec<u8>
 }
 
 impl SSTableBuilder {
@@ -19,15 +20,17 @@ impl SSTableBuilder {
             curr_file_index: 0,
             curr_block: Block::new(),
             curr_offset: 0,
-            index_entries: Vec::new()
+            index_entries: Vec::new(),
+            last_key: vec![]
         }
     }
 
     pub fn append(&mut self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
         self.ensure_file()?;
         self.curr_block.append(key, value);
+        self.last_key = key.to_vec();
 
-         if self.curr_block.size() >= MIN_BLOCK_SIZE {
+         if self.curr_block.size() >= MAX_BLOCK_SIZE {
              let file = self.curr_file.as_mut().unwrap();
              let block_bytes = self.curr_block.as_vec();
 
@@ -35,9 +38,9 @@ impl SSTableBuilder {
 
              self.index_entries.push(IndexEntry {
                  block_offset: self.curr_offset,
-                 last_key: key.to_vec(),
+                 last_key: self.last_key.clone(),
              });
-             
+
              self.curr_offset = self.curr_offset + block_bytes.len() as u64;
              self.curr_block = Block::new();
         }
@@ -63,11 +66,57 @@ impl SSTableBuilder {
             }
         }
     }
+
+    pub fn finish(&mut self) -> Result<(), std::io::Error> {
+        self.ensure_file()?;
+
+        // Close out SSTable, flush in-memory block even if it didn't reach MAX_BLOCK_SIZE
+        if self.curr_block.payload.len() > 0 {
+            let file = self.curr_file.as_mut().unwrap();
+            let block_bytes = self.curr_block.as_vec();
+
+            file.write_all(block_bytes.as_slice())?;
+
+            self.index_entries.push(IndexEntry {
+                block_offset: self.curr_offset,
+                last_key: self.last_key.clone(),
+            });
+
+            self.curr_offset = self.curr_offset + block_bytes.len() as u64;
+        }
+        let mut foot_buf: Vec<u8> = vec![];
+        for index_entry in &self.index_entries {
+            foot_buf.extend_from_slice(index_entry.as_vec().as_slice());
+        }
+        let index_start_offset = self.curr_offset;
+        foot_buf.extend_from_slice(&index_start_offset.to_le_bytes());
+
+        let file = self.curr_file.as_mut().unwrap();
+
+        file.write_all(&foot_buf)?;
+        file.sync_all()?;
+
+        Ok(())
+    }
 }
 
 struct IndexEntry {
     last_key: Vec<u8>,
     block_offset: u64
+}
+
+impl IndexEntry {
+    pub fn as_vec(&self) -> Vec<u8> {
+        let key_len = self.last_key.len();
+        let buf_size = size_of::<u32>() + key_len + size_of::<u64>();
+        let mut buf: Vec<u8> = Vec::with_capacity(buf_size);
+
+        buf.extend_from_slice(&(key_len as u32).to_le_bytes());
+        buf.extend_from_slice(&self.last_key);
+        buf.extend_from_slice(&self.block_offset.to_le_bytes());
+
+        buf
+    }
 }
 
 struct Block {
