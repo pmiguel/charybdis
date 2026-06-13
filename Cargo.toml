@@ -1,14 +1,14 @@
 [package]
-name = "onyxdb"
+name = "charybdis"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "onyxdb"
+name = "charybdis"
 path = "src/lib.rs"
 
 [[bin]]
-name = "onyxdbserver"
+name = "charybdisserver"
 path = "src/main.rs"
 
 [dependencies]

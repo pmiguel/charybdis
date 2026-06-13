@@ -1,7 +1,6 @@
-use onyxdb::db::Db;
-use onyxdb::memtable;
-use onyxdb::wal;
-use onyxdb::wal::WalRecord;
+use charybdis::db::Db;
+use charybdis::wal;
+use charybdis::wal::WalRecord;
 
 fn main() {
     let mut wal = wal::Wal::new();
