@@ -75,7 +75,7 @@ impl Wal {
         }
     }
 
-    pub fn init(&mut self) -> Result<(), std::io::Error> {
+    pub fn init(&mut self) -> Result<(), io::Error> {
         let mut open_options = fs::OpenOptions::new();
         open_options
             .read(true)
