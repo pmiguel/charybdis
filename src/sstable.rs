@@ -33,9 +33,9 @@ impl Block {
 
         // Append to existing payload buffer
         self.payload.extend_from_slice(&key_len.to_le_bytes());
-        self.payload.extend_from_slice(key.into());
+        self.payload.extend_from_slice(key);
         self.payload.extend_from_slice(&val_len.to_le_bytes());
-        self.payload.extend_from_slice(val.into());
+        self.payload.extend_from_slice(val);
     }
 
     pub fn size(&self) -> usize {
