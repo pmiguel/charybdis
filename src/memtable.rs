@@ -1,7 +1,6 @@
 use crate::skiplist::SkipList;
 
 const TOMBSTONE_MARKER: [u8; 1] = [0];
-const MAX_MEMTABLE_SIZE_BYTES: u32 = 4 * 1024 * 1024; // 4MB
 
 pub struct MemTable {
     data: SkipList,
