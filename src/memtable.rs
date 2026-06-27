@@ -15,6 +15,10 @@ impl MemTable {
         }
     }
 
+    pub fn size(&self) -> usize {
+        self.data.size_bytes
+    }
+
     pub fn get(&self, search_key: &[u8]) -> Option<&[u8]> {
         match self.data.get(search_key) {
             Some(data) => {
@@ -41,6 +45,10 @@ impl MemTable {
         }
         self.data.put(search_key, &TOMBSTONE_MARKER.as_slice());
         Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.size_bytes
     }
 
     pub fn freeze(&mut self) {

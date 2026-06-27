@@ -2,6 +2,8 @@ use std::io;
 use crate::memtable::MemTable;
 use crate::wal::{Wal, WalRecord};
 
+const MAX_MEMTABLE_SIZE: usize = 1024;
+
 pub struct Db {
     wal: Wal,
     active_mem_table: MemTable,
@@ -48,7 +50,17 @@ impl Db {
 
         self.wal.append(&record)?;
         match self.active_mem_table.put(k_slice, v_slice) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                if self.active_mem_table.size() >= MAX_MEMTABLE_SIZE {
+                    if self.flushing_mem_table.is_some() {
+                        panic!("Write stall! Disk is too slow!");
+                    }
+                    self.active_mem_table.freeze();
+                    self.flushing_mem_table = Some(std::mem::replace(&mut self.active_mem_table, MemTable::new()));
+                    // TODO flush memtable to disk SSTables and rotate WAL
+                }
+                Ok(())
+            },
             // TODO handle memtable errors
             Err(_) => Err(io::Error::new(io::ErrorKind::Other, "An error has ocurred"))
         }

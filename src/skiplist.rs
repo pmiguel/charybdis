@@ -7,6 +7,14 @@ pub struct Node {
     next: Vec<Option<usize>>
 }
 
+pub struct SkipList {
+    arena: Vec<Node>,
+    head_idx: usize,
+    top_level: usize,
+    pub size_bytes: usize,
+    length: usize
+}
+
 impl Node {
     pub fn size(&self) -> usize {
         let key_size = self.key.len();
@@ -15,15 +23,6 @@ impl Node {
 
         key_size + val_size + next_size
     }
-}
-
-
-pub struct SkipList {
-    arena: Vec<Node>,
-    head_idx: usize,
-    top_level: usize,
-    size_bytes: usize,
-    length: usize
 }
 
 impl SkipList {
