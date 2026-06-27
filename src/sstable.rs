@@ -1,45 +1,47 @@
-use std::fs;
+use std::{fs};
 use std::fs::File;
 use std::io::Write;
 
 const MAX_BLOCK_SIZE: usize = 4 * 1024; // 4 KiB
 
 struct SSTableBuilder {
+    file_name: String,
     curr_file: Option<File>,
-    curr_file_index: u32,
     curr_block: Block,
     curr_offset: u64,
     index_entries: Vec<IndexEntry>,
-    last_key: Vec<u8>
+    last_key: Vec<u8>,
+    finished: bool
 }
 
 impl SSTableBuilder {
-    fn new() -> SSTableBuilder {
+    fn new(file_name: String) -> SSTableBuilder {
         SSTableBuilder {
+            file_name,
             curr_file: None,
-            curr_file_index: 0,
             curr_block: Block::new(),
             curr_offset: 0,
             index_entries: Vec::new(),
-            last_key: vec![]
+            last_key: vec![],
+            finished: false
         }
     }
 
     pub fn append(&mut self, key: &[u8], value: &[u8]) -> Result<(), std::io::Error> {
+        if self.finished {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "SSTable already finished"));
+        }
         self.ensure_file()?;
         self.curr_block.append(key, value);
         self.last_key = key.to_vec();
 
          if self.curr_block.size() >= MAX_BLOCK_SIZE {
-             let file = self.curr_file.as_mut().unwrap();
+             let sst_file = self.curr_file.as_mut().unwrap();
              let block_bytes = self.curr_block.as_vec();
 
-             file.write_all(block_bytes.as_slice())?;
+             sst_file.write_all(block_bytes.as_slice())?;
 
-             self.index_entries.push(IndexEntry {
-                 block_offset: self.curr_offset,
-                 last_key: self.last_key.clone(),
-             });
+             self.index_entries.push(IndexEntry::new(self.last_key.clone(), self.curr_offset));
 
              self.curr_offset = self.curr_offset + block_bytes.len() as u64;
              self.curr_block = Block::new();
@@ -56,7 +58,7 @@ impl SSTableBuilder {
                     .append(true)
                     .create(true);
 
-                match open_options.open("file.sst") {
+                match open_options.open(self.file_name.clone()) {
                     Ok(file) => {
                         self.curr_file = Some(file);
                         Ok(())
@@ -68,19 +70,19 @@ impl SSTableBuilder {
     }
 
     pub fn finish(&mut self) -> Result<(), std::io::Error> {
+        if self.finished {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "SSTable already finished"));
+        }
         self.ensure_file()?;
 
         // Close out SSTable, flush in-memory block even if it didn't reach MAX_BLOCK_SIZE
         if self.curr_block.payload.len() > 0 {
-            let file = self.curr_file.as_mut().unwrap();
+            let sst_file = self.curr_file.as_mut().unwrap();
             let block_bytes = self.curr_block.as_vec();
 
-            file.write_all(block_bytes.as_slice())?;
+            sst_file.write_all(block_bytes.as_slice())?;
 
-            self.index_entries.push(IndexEntry {
-                block_offset: self.curr_offset,
-                last_key: self.last_key.clone(),
-            });
+            self.index_entries.push(IndexEntry::new(self.last_key.clone(), self.curr_offset));
 
             self.curr_offset = self.curr_offset + block_bytes.len() as u64;
         }
@@ -95,7 +97,7 @@ impl SSTableBuilder {
 
         file.write_all(&foot_buf)?;
         file.sync_all()?;
-
+        self.finished = true;
         Ok(())
     }
 }
@@ -106,6 +108,13 @@ struct IndexEntry {
 }
 
 impl IndexEntry {
+    pub fn new(last_key: Vec<u8>, block_offset: u64) -> IndexEntry {
+        IndexEntry {
+            last_key,
+            block_offset
+        }
+    }
+
     pub fn as_vec(&self) -> Vec<u8> {
         let key_len = self.last_key.len();
         let buf_size = size_of::<u32>() + key_len + size_of::<u64>();
