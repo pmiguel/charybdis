@@ -12,11 +12,10 @@ pub struct Db {
 
 impl Db {
     pub fn new() -> Db {
-        let wal = Wal::new();
-        let active_mem_table = MemTable::new();
-
         Db {
-            wal, active_mem_table, flushing_mem_table: None
+            wal: Wal::new(),
+            active_mem_table: MemTable::new(),
+            flushing_mem_table: None
         }
     }
 

@@ -1,6 +1,7 @@
-use std::{fs};
+use std::{fs, io};
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
+use bytes::Buf;
 
 const MAX_BLOCK_SIZE: usize = 4 * 1024; // 4 KiB
 
@@ -12,6 +13,26 @@ struct SSTableBuilder {
     index_entries: Vec<IndexEntry>,
     last_key: Vec<u8>,
     finished: bool
+}
+
+#[cfg(unix)]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    use std::os::unix::fs::FileExt;
+    file.read_exact_at(buf, offset);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
+    use std::os::windows::fs::FileExt;
+    file.seek_read(buf, offset)?;
+    Ok(())
+}
+
+struct SSTableReader {
+    curr_file: Option<File>,
+    index_start_offset: u64,
+    index_entries: Vec<IndexEntry>,
 }
 
 impl SSTableBuilder {
@@ -99,6 +120,111 @@ impl SSTableBuilder {
         file.sync_all()?;
         self.finished = true;
         Ok(())
+    }
+}
+
+impl SSTableReader {
+    pub fn open(&self, path: &str) -> Result<Self, std::io::Error> {
+        let mut file = File::open(path)?;
+        let file_size = file.metadata()?.len();
+
+        // Get Index block range
+        let mut footer_start_offset_buf = [0u8; 8];
+        file.seek(SeekFrom::End(-8))?;
+        file.read_exact(&mut footer_start_offset_buf)?;
+
+        let index_start_offset = u64::from_le_bytes(footer_start_offset_buf);
+        let footer_start_offset = file_size - 8;
+        let index_size = footer_start_offset - index_start_offset;
+
+        // Read Index block
+        let mut index_buff = vec![0u8; index_size as usize];
+        file.seek(SeekFrom::Start(index_start_offset))?;
+        file.read_exact(&mut index_buff)?;
+
+        // Parse Index block into IndexEntries
+        let mut index_entries = vec![];
+        let mut ptr = &index_buff[..];
+
+        while ptr.has_remaining() {
+            let key_length = ptr.get_u32_le();
+            let key = &ptr[..key_length as usize];
+            ptr.advance(key_length as usize);
+            let last_offset = ptr.get_u64_le();
+            index_entries.push(IndexEntry::new(key.into(), last_offset));
+        }
+
+        Ok(SSTableReader {
+            curr_file: Some(file),
+            index_entries,
+            index_start_offset
+        })
+    }
+
+    pub fn get(&mut self, search_key: Vec<u8>) -> Result<Option<Vec<u8>>, std::io::Error> {
+        let index_entries_length = self.index_entries.len();
+        if index_entries_length == 0 {
+            return Ok(None);
+        }
+
+        // Find index entry matching out search key
+        let mut found_index_entry: usize = 0;
+        let mut found = false;
+        for i in (0..index_entries_length) {
+            let entry = &self.index_entries[i];
+            if entry.last_key >= search_key {
+                found = true;
+                found_index_entry = i;
+                break;
+            }
+        }
+
+        // Key is higher than the stored indexes. Not on this file.
+        if !found {
+            return Ok(None);
+        }
+
+        // Fetch target block offset and calculate it's size
+        let target_block_offset = (&self.index_entries[found_index_entry]).block_offset;
+        let target_block_size = if found_index_entry == index_entries_length - 1 {
+            self.index_start_offset - target_block_offset
+        } else {
+            &self.index_entries[found_index_entry + 1].block_offset - target_block_offset
+        };
+
+        // Read block from the sst
+        let sst = match self.curr_file.as_mut() {
+            None => {
+                return Err(io::Error::new(io::ErrorKind::Other, "SST File not assigned"));
+            },
+            Some(f) => f,
+        };
+
+        let mut block_buff = vec![0u8; target_block_size as usize];
+        read_at(sst, &mut block_buff, target_block_offset)?;
+
+        let block_data_size = block_buff.len() - 5;
+        let mut ptr = &block_buff[..block_data_size];
+
+        // TODO CRC32 block check
+
+        while ptr.has_remaining() {
+            let key_length = ptr.get_u32_le();
+            let key = &ptr[..key_length as usize];
+            ptr.advance(key_length as usize);
+            let value_length = ptr.get_u32_le();
+            let value = &ptr[..value_length as usize];
+            ptr.advance(value_length as usize);
+            if key == search_key {
+                return Ok(Some(value.into()));
+            }
+
+            // No point in keep looking, it's a sorted block
+            if key > search_key.as_slice() {
+                break;
+            }
+        }
+        Ok(None)
     }
 }
 
