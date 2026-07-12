@@ -98,8 +98,21 @@ impl Db {
         K: AsRef<[u8]>,
         V: From<&'a [u8]>,
     {
-        println!("DB::getting key...");
+        println!("DB::getting key from active_memtable...");
         let k_slice = key.as_ref();
-        self.active_mem_table.get(k_slice).map(V::from)
+        let mut result = self.active_mem_table.get(k_slice).map(V::from);
+
+        if result.is_some() {
+            return result;
+        }
+
+        if self.flushing_mem_table.is_some() {
+            println!("DB::getting key from flushing_memtable...");
+            result = self.flushing_mem_table.as_ref().unwrap().get(k_slice).map(V::from);
+        }
+
+        // TODO tiered search over L0..Ln
+
+        result
     }
 }
