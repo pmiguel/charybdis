@@ -1,47 +1,104 @@
-use charybdis::db::Db;
-use charybdis::wal;
-use charybdis::wal::WalRecord;
+use std::{io, process};
+use std::collections::HashMap;
+
+struct Command {
+    name: String,
+    args: Vec<String>
+}
+
+struct CommandResult {
+    success: bool,
+    body: String
+}
+
+struct AppState {
+    data: HashMap<String, String>,
+    is_running: bool
+}
 
 fn main() {
-    let mut wal = wal::Wal::new();
-    wal.init().unwrap();
-
-    // Bootstrap WAL directly
-    let r1 = WalRecord::new(b"val1", b"1", 1, 0);
-    let r2 = WalRecord::new(b"val2", b"2", 1, 1);
-    let r3 = WalRecord::new(b"val3", b"3", 1, 2);
-    let r4 = WalRecord::new(b"val4", b"4", 1, 3);
-
-    // Delete val3
-    let r5 = WalRecord::new(b"val3", b"", 2, 4);
-
-    // Update val4
-    let r6 = WalRecord::new(b"val4", b"44", 1, 5);
-
-    wal.append(&r1).unwrap();
-    wal.append(&r2).unwrap();
-    wal.append(&r3).unwrap();
-    wal.append(&r4).unwrap();
-    wal.append(&r5).unwrap();
-    wal.append(&r6).unwrap();
-
-    // Verify records
-    wal.verify().unwrap();
-
-    // init DB, will load wal
-    let mut db = Db::new();
-    db.init().unwrap();
-
-    // assertions
-    let result1 = String::from_utf8_lossy(db.get(&"val1").unwrap());
-    let result2 = String::from_utf8_lossy(db.get(&"val2").unwrap());
-    let result3 = String::from_utf8_lossy(db.get(&"val3").unwrap_or(b"<null>"));
-    let result4 = String::from_utf8_lossy(db.get(&"val4").unwrap());
-
-    println!("{}", result1);
-    println!("{}", result2);
-    println!("{}", result3);
-    println!("{}", result4);
+    let mut app_state = AppState {
+        data: HashMap::new(),
+        is_running: true
+    };
 
 
+    while app_state.is_running {
+        let mut word = String::new();
+        println!("\n> ");
+        io::stdin()
+            .read_line(&mut word)
+            .expect("Failed to read line");
+
+        word = word.trim().to_string();
+
+        match parse(&word) {
+            None => {
+                println!("Invalid command");
+            }
+            Some(command) => {
+                let result = dispatch(&command, &mut app_state);
+                println!("< ({}) {}", result.success, result.body);
+            }
+        }
+    }
+    process::exit(0);
+}
+
+fn parse(word: &str) -> Option<Command> {
+    if word.is_empty() {
+        return None;
+    }
+    let tokens: Vec<&str> = word.split(" ").collect();
+    if tokens.len() == 0 || tokens.len() == 1 && tokens[0].is_empty(){
+        return None
+    }
+    let mut args = vec![];
+    if tokens.len() > 1 {
+        for token in &tokens[1..] {
+            args.push(token.to_string())
+        }
+    }
+
+    Some(Command {
+        name: tokens[0].to_string(),
+        args
+    })
+}
+
+fn dispatch(command: &Command, state: &mut AppState) -> CommandResult {
+    match command.name.to_uppercase().as_str() {
+        "EXIT" => {
+            state.is_running = false;
+            CommandResult{ success: true, body: String::new()}
+        },
+        "GET" => {
+            if command.args.len() < 1 {
+                return CommandResult{ success: false, body: String::from("Invalid number of arguments")};
+            }
+            match state.data.get(&command.args[0].to_string()) {
+                None => CommandResult{ success: true, body: String::from("<nil>")},
+                Some(value) => CommandResult{ success: true, body: String::from(value)}
+            }
+        },
+        "SET" => {
+            if command.args.len() < 2 {
+                return CommandResult{ success: false, body: String::from("Invalid number of arguments")};
+            }
+            match state.data.insert(command.args[0].to_string(), command.args[1].to_string()) {
+                None => CommandResult{ success: true, body: String::from("<INSERTED>")},
+                Some(_) => CommandResult{ success: true, body: String::from("<UPDATED>")}
+            }
+        },
+        "DEL" => {
+            if command.args.len() < 1 {
+                return CommandResult{ success: false, body: String::from("Invalid number of arguments")};
+            }
+            match state.data.remove(&command.args[0].to_string()) {
+                None => CommandResult{ success: true, body: String::from("<nil>")},
+                Some(_) => CommandResult{ success: true, body: String::from("<REMOVED>")}
+            }
+        }
+        _ => CommandResult{ success: false, body: String::from("Command not found") },
+    }
 }
