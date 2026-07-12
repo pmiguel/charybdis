@@ -1,5 +1,5 @@
 use std::{io, process};
-use std::collections::HashMap;
+use charybdis::db::Db;
 
 struct Command {
     name: String,
@@ -12,15 +12,17 @@ struct CommandResult {
 }
 
 struct AppState {
-    data: HashMap<String, String>,
+    db: Db,
     is_running: bool
 }
 
 fn main() {
     let mut app_state = AppState {
-        data: HashMap::new(),
+        db: Db::new(),
         is_running: true
     };
+
+    app_state.db.init().expect("Error initializing database...");
 
 
     while app_state.is_running {
@@ -76,27 +78,30 @@ fn dispatch(command: &Command, state: &mut AppState) -> CommandResult {
             if command.args.len() < 1 {
                 return CommandResult{ success: false, body: String::from("Invalid number of arguments")};
             }
-            match state.data.get(&command.args[0].to_string()) {
+            let result: Option<Vec<u8>> = state.db.get(&command.args[0]);
+            match result {
                 None => CommandResult{ success: true, body: String::from("<nil>")},
-                Some(value) => CommandResult{ success: true, body: String::from(value)}
+                Some(value) => CommandResult{ success: true, body: String::from_utf8(value).unwrap()}
             }
         },
         "SET" => {
             if command.args.len() < 2 {
                 return CommandResult{ success: false, body: String::from("Invalid number of arguments")};
             }
-            match state.data.insert(command.args[0].to_string(), command.args[1].to_string()) {
-                None => CommandResult{ success: true, body: String::from("<INSERTED>")},
-                Some(_) => CommandResult{ success: true, body: String::from("<UPDATED>")}
+            let result= state.db.put(command.args[0].clone(), command.args[1].clone());
+            match result {
+                Err(e) => CommandResult{ success: false, body: format!("{}", e)},
+                Ok(_) => CommandResult{ success: true, body: String::from("<OK>")}
             }
         },
         "DEL" => {
             if command.args.len() < 1 {
                 return CommandResult{ success: false, body: String::from("Invalid number of arguments")};
             }
-            match state.data.remove(&command.args[0].to_string()) {
-                None => CommandResult{ success: true, body: String::from("<nil>")},
-                Some(_) => CommandResult{ success: true, body: String::from("<REMOVED>")}
+            let result= state.db.delete(command.args[0].clone());
+            match result {
+                Err(e) => CommandResult{ success: false, body: format!("{}", e)},
+                Ok(_) => CommandResult{ success: true, body: String::from("<OK>")}
             }
         }
         _ => CommandResult{ success: false, body: String::from("Command not found") },

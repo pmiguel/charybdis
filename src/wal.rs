@@ -76,6 +76,7 @@ impl Wal {
     }
 
     pub fn init(&mut self) -> Result<(), io::Error> {
+        println!("WAL::init");
         let mut open_options = fs::OpenOptions::new();
         open_options
             .read(true)
@@ -86,6 +87,7 @@ impl Wal {
         match open_options.open(WAL_FILE_PATH) {
             Ok(file) => {
                 self.curr_file = Some(file);
+                println!("WAL::init completed, open at {}", WAL_FILE_PATH);
                 Ok(())
             }
             Err(e) => { Err(e) }
@@ -100,12 +102,15 @@ impl Wal {
         })?;
 
         file.write_all(&buf)?;
+        println!("WAL::appended {}", String::from_utf8(record.key.clone()).unwrap());
         file.sync_data()?;
+        println!("WAL::fsynced");
 
         Ok(())
     }
 
     pub fn recover(&mut self) -> Result<Vec<WalRecord>, io::Error> {
+        println!("WAL::recovering...");
         let file = self.curr_file.as_mut().ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotConnected, "WAL file not initialized")
         })?;
@@ -155,6 +160,8 @@ impl Wal {
                 record_buf.push(WalRecord::new(key, val, record_type, seq_no));
             }
         }
+
+        println!("WAL::recovered {} records", record_buf.len());
 
         Ok(record_buf)
     }
