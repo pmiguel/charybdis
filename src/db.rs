@@ -3,7 +3,7 @@ use crate::memtable::MemTable;
 use crate::sstable::{SSTableBuilder, SSTableReader};
 use crate::wal::{Wal, WalRecord};
 
-const MAX_MEMTABLE_SIZE: usize = 1024;
+const MAX_MEMTABLE_SIZE: usize = 64 * 1024 * 1024;
 
 pub struct Db {
     wal: Wal,
@@ -50,7 +50,7 @@ impl Db {
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,
     {
-        println!("DB::putting key...");
+        //println!("DB::putting key...");
         let k_slice = key.as_ref();
         let v_slice = val.as_ref();
         let record = WalRecord::new(k_slice, v_slice, 1, 0);
@@ -70,6 +70,7 @@ impl Db {
                     println!("DB::rotating memtable. Marking old for flushing...");
                     self.flushing_mem_table = Some(std::mem::replace(&mut self.active_mem_table, MemTable::new()));
                     self.flush()?;
+                    self.wal.rotate()?;
                 }
                 Ok(())
             },
@@ -120,8 +121,8 @@ impl Db {
     fn flush(&mut self) -> Result<(), io::Error> {
         if let Some(mt) = &mut self.flushing_mem_table {
             println!("DB::flushing frozen memtable...");
-            let current_timestamp = chrono::offset::Utc::now();
-            let filename = format!("l0_{}.sst", current_timestamp);
+            let current_timestamp = chrono::offset::Utc::now().timestamp();
+            let filename = format!("./l0_{}.sst", current_timestamp);
             let mut sst = SSTableBuilder::new(filename.clone());
 
             let data = mt.list();

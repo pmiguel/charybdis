@@ -1,4 +1,7 @@
 use std::{io, process};
+use std::io::Error;
+use std::num::ParseIntError;
+use rand::random;
 use charybdis::db::Db;
 
 struct Command {
@@ -102,6 +105,25 @@ fn dispatch(command: &Command, state: &mut AppState) -> CommandResult {
             match result {
                 Err(e) => CommandResult{ success: false, body: format!("{}", e)},
                 Ok(_) => CommandResult{ success: true, body: String::from("<OK>")}
+            }
+        }
+        "PRELOAD" => {
+            if command.args.len() < 1 {
+                return CommandResult{ success: false, body: String::from("Invalid number of arguments")};
+            }
+            match command.args[0].parse::<u64>() {
+                Ok(count) => {
+                    for idx in 0..count {
+                        match state.db.put(format!("{}", idx), format!("{}", idx * 100000)) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                return CommandResult{ success: false, body: format!("{}", e)}
+                            }
+                        }
+                    }
+                    CommandResult{ success: true, body: format!("Preloaded {} KV pairs", count)}
+                }
+                Err(_) => CommandResult{ success: false, body: String::from(format!("Invalid u64: {}", command.args[0]))}
             }
         }
         _ => CommandResult{ success: false, body: String::from("Command not found") },

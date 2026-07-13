@@ -102,10 +102,20 @@ impl Wal {
         })?;
 
         file.write_all(&buf)?;
-        println!("WAL::appended {}", String::from_utf8(record.key.clone()).unwrap());
-        file.sync_data()?;
-        println!("WAL::fsynced");
+        //println!("WAL::appended {}", String::from_utf8(record.key.clone()).unwrap());
+        //file.sync_data()?;
+        //println!("WAL::fsynced");
 
+        Ok(())
+    }
+
+    pub fn rotate(&mut self) -> Result<(), io::Error> {
+        println!("WAL::rotating...");
+        if let Some(_) = &mut self.curr_file {
+            self.curr_file = None;
+        }
+        fs::remove_file(WAL_FILE_PATH)?;
+        self.init()?;
         Ok(())
     }
 
@@ -162,7 +172,6 @@ impl Wal {
         }
 
         println!("WAL::recovered {} records", record_buf.len());
-
         Ok(record_buf)
     }
 
