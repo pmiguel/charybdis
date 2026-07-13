@@ -54,6 +54,10 @@ impl MemTable {
     pub fn freeze(&mut self) {
         self.is_frozen = true;
     }
+
+    pub fn list(&self) -> Vec<(&[u8], &[u8])> {
+        self.data.as_vec()
+    }
 }
 
 #[cfg(test)]

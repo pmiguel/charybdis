@@ -1,5 +1,6 @@
 use std::io;
 use crate::memtable::MemTable;
+use crate::sstable::{SSTableBuilder, SSTableReader};
 use crate::wal::{Wal, WalRecord};
 
 const MAX_MEMTABLE_SIZE: usize = 1024;
@@ -68,7 +69,7 @@ impl Db {
 
                     println!("DB::rotating memtable. Marking old for flushing...");
                     self.flushing_mem_table = Some(std::mem::replace(&mut self.active_mem_table, MemTable::new()));
-                    // TODO flush memtable to disk SSTables and rotate WAL
+                    self.flush()?;
                 }
                 Ok(())
             },
@@ -114,5 +115,23 @@ impl Db {
         // TODO tiered search over L0..Ln
 
         result
+    }
+
+    fn flush(&mut self) -> Result<(), io::Error> {
+        if let Some(mt) = &mut self.flushing_mem_table {
+            println!("DB::flushing frozen memtable...");
+            let current_timestamp = chrono::offset::Utc::now();
+            let filename = format!("l0_{}.sst", current_timestamp);
+            let mut sst = SSTableBuilder::new(filename.clone());
+
+            let data = mt.list();
+            for pair in data {
+                sst.append(pair.0, pair.1)?;
+            }
+            sst.finish()?;
+            self.flushing_mem_table = None;
+            println!("DB::Flush complete ({})", filename);
+        }
+        Ok(())
     }
 }

@@ -23,6 +23,14 @@ impl Node {
 
         key_size + val_size + next_size
     }
+
+    pub fn clone (&self) -> Node {
+        Node {
+            key: self.key.clone(),
+            value: self.value.clone(),
+            next: vec![]
+        }
+    }
 }
 
 impl SkipList {
@@ -135,6 +143,18 @@ impl SkipList {
 
     fn update_value_size_bytes(&mut self, old_size: usize, new_size: usize) -> () {
         self.size_bytes = self.size_bytes - old_size + new_size;
+    }
+
+    pub fn as_vec(&self) -> Vec<(&[u8], &[u8])> {
+        let mut out_buf = vec![];
+
+    let mut next_node_idx = self.arena[0].next[0];
+        while let Some(idx) = next_node_idx {
+            let curr_node = &self.arena[idx];
+            next_node_idx = curr_node.next[0];
+            out_buf.push((curr_node.key.as_slice(), curr_node.value.as_slice()));
+        }
+        out_buf
     }
 }
 

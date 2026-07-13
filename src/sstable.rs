@@ -3,18 +3,6 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use bytes::Buf;
 
-const MAX_BLOCK_SIZE: usize = 4 * 1024; // 4 KiB
-
-struct SSTableBuilder {
-    file_name: String,
-    curr_file: Option<File>,
-    curr_block: Block,
-    curr_offset: u64,
-    index_entries: Vec<IndexEntry>,
-    last_key: Vec<u8>,
-    finished: bool
-}
-
 #[cfg(unix)]
 fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
     use std::os::unix::fs::FileExt;
@@ -29,14 +17,26 @@ fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
     Ok(())
 }
 
-struct SSTableReader {
+const MAX_BLOCK_SIZE: usize = 4 * 1024; // 4 KiB
+
+pub struct SSTableBuilder {
+    file_name: String,
+    curr_file: Option<File>,
+    curr_block: Block,
+    curr_offset: u64,
+    index_entries: Vec<IndexEntry>,
+    last_key: Vec<u8>,
+    finished: bool
+}
+
+pub struct SSTableReader {
     curr_file: Option<File>,
     index_start_offset: u64,
     index_entries: Vec<IndexEntry>,
 }
 
 impl SSTableBuilder {
-    fn new(file_name: String) -> SSTableBuilder {
+    pub fn new(file_name: String) -> SSTableBuilder {
         SSTableBuilder {
             file_name,
             curr_file: None,
@@ -107,16 +107,16 @@ impl SSTableBuilder {
 
             self.curr_offset = self.curr_offset + block_bytes.len() as u64;
         }
-        let mut foot_buf: Vec<u8> = vec![];
+        let mut footer_buf: Vec<u8> = vec![];
         for index_entry in &self.index_entries {
-            foot_buf.extend_from_slice(index_entry.as_vec().as_slice());
+            footer_buf.extend_from_slice(index_entry.as_vec().as_slice());
         }
         let index_start_offset = self.curr_offset;
-        foot_buf.extend_from_slice(&index_start_offset.to_le_bytes());
+        footer_buf.extend_from_slice(&index_start_offset.to_le_bytes());
 
         let file = self.curr_file.as_mut().unwrap();
 
-        file.write_all(&foot_buf)?;
+        file.write_all(&footer_buf)?;
         file.sync_all()?;
         self.finished = true;
         Ok(())
