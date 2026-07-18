@@ -18,7 +18,6 @@ fn read_at(file: &File, buf: &mut [u8], offset: u64) -> io::Result<()> {
 }
 
 const MAX_BLOCK_SIZE: usize = 4 * 1024; // 4 KiB
-
 pub struct SSTableBuilder {
     file_name: String,
     curr_file: Option<File>,
